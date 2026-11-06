@@ -12,6 +12,16 @@ Season review for **MIBR GC** in **2026**, built from the public match pages on 
 - How rounds were won (elimination, detonation, defuse, time)
 - Short strategy notes a coach can take into a VOD review
 
+## Match day
+
+On the `match-day` branch, the brief a coach can read is separate from this lab:
+
+```bash
+streamlit run matchday/app.py
+```
+
+That app has four sections: the one-page report, the Team Liquid Brazil series, the veto card, and three rehearsal cues. The sidebar switches the same brief between English and Portuguese. It reads the same `data/processed` tables as the lab. `main` keeps the full dashboard.
+
 ## Run
 
 ```bash

@@ -461,7 +461,28 @@ def map_decisions(maps: pd.DataFrame) -> pd.DataFrame:
     return frame.sort_values(["_order", "maps"], ascending=[True, False]).drop(columns="_order")
 
 
-def round_plan(opening: pd.DataFrame, buys: pd.DataFrame, rounds: pd.DataFrame) -> list[dict[str, str]]:
+def _say(lang: str, en: str, pt: str) -> str:
+    return pt if lang == "pt" else en
+
+
+def _side_name(lang: str, side: str) -> str:
+    if lang != "pt":
+        return side
+    return "ataque" if side == "attack" else "defesa"
+
+
+def _on_side(lang: str, side: str) -> str:
+    if lang != "pt":
+        return f"on {side}"
+    return "no ataque" if side == "attack" else "na defesa"
+
+
+def round_plan(
+    opening: pd.DataFrame,
+    buys: pd.DataFrame,
+    rounds: pd.DataFrame,
+    lang: str = "en",
+) -> list[dict[str, str]]:
     """Practice target for pistols, gun rounds, anti-ecos, and post-plants."""
     items: list[dict[str, str]] = []
     if not opening.empty and "is_us" in opening.columns:
@@ -469,9 +490,17 @@ def round_plan(opening: pd.DataFrame, buys: pd.DataFrame, rounds: pd.DataFrame) 
         pistol = rate(ours["pistol_won"].sum(), ours["pistol_played"].sum())
         conversion = rate(ours["conversion_won"].sum(), ours["conversion_played"].sum())
         if pistol is not None:
-            result = f"Pistols {_pct(pistol)} ({int(ours['pistol_won'].sum())}/{int(ours['pistol_played'].sum())})"
+            won = int(ours["pistol_won"].sum())
+            played = int(ours["pistol_played"].sum())
+            result = _say(lang, f"Pistols {_pct(pistol)} ({won}/{played})", f"Pistolas {_pct(pistol)} ({won}/{played})")
             if conversion is not None:
-                result += f", conversion {_pct(conversion)} ({int(ours['conversion_won'].sum())}/{int(ours['conversion_played'].sum())})"
+                converted = int(ours["conversion_won"].sum())
+                conversion_played = int(ours["conversion_played"].sum())
+                result += _say(
+                    lang,
+                    f", conversion {_pct(conversion)} ({converted}/{conversion_played})",
+                    f", conversão {_pct(conversion)} ({converted}/{conversion_played})",
+                )
             if pistol < PISTOL_WEAK:
                 practice = "Run pistol comps, the first duel, and the bonus as their own block."
             else:
@@ -516,7 +545,11 @@ def round_plan(opening: pd.DataFrame, buys: pd.DataFrame, rounds: pd.DataFrame) 
             items.append(
                 {
                     "round": "Attack post-plant",
-                    "result": f"Opponents defused {defuses} of {len(attack)} attack rounds ({share:.0%})",
+                    "result": _say(
+                        lang,
+                        f"Opponents defused {defuses} of {len(attack)} attack rounds ({share:.0%})",
+                        f"As adversárias desarmaram {defuses} de {len(attack)} rodadas de ataque ({share:.0%})",
+                    ),
                     "practice": (
                         "Pair the post-plant positions with the player who is winning opening duels."
                         if share >= 0.12
@@ -557,7 +590,7 @@ def _agent_rows(group: pd.DataFrame) -> list[dict]:
     return rows
 
 
-def _agent_plan(group: pd.DataFrame) -> dict:
+def _agent_plan(group: pd.DataFrame, lang: str = "en") -> dict:
     """Default agent from volume plus rating. A small-sample spike does not replace the home agent."""
     rows = _agent_rows(group)
     floor = _agent_floor(len(group))
@@ -574,11 +607,22 @@ def _agent_plan(group: pd.DataFrame) -> dict:
     if volume["agent"] != best["agent"] and volume["maps"] >= 2 * best["maps"] and gap <= 0.15:
         home = volume
     role = ROLES.get(home["agent"].casefold(), _role_for(group["agent"]))
-    lines = [f"Default {home['agent']} ({home['rating']:.2f} over {home['maps']} maps)."]
+    lines = [
+        _say(
+            lang,
+            f"Default {home['agent']} ({home['rating']:.2f} over {home['maps']} maps).",
+            f"Padrão {home['agent']} ({home['rating']:.2f} em {home['maps']} mapas).",
+        )
+    ]
     if best["agent"] != home["agent"]:
         lines.append(
-            f"{best['agent']} is higher on a smaller sample ({best['rating']:.2f} over {best['maps']} maps). "
-            "Use it when the map wants that kit."
+            _say(
+                lang,
+                f"{best['agent']} is higher on a smaller sample ({best['rating']:.2f} over {best['maps']} maps). "
+                "Use it when the map wants that kit.",
+                f"{best['agent']} está mais alto numa amostra menor ({best['rating']:.2f} em {best['maps']} mapas). "
+                "Use quando o mapa pedir esse kit.",
+            )
         )
     home_role = ROLES.get(home["agent"].casefold(), "")
     companion = [
@@ -591,11 +635,22 @@ def _agent_plan(group: pd.DataFrame) -> dict:
     ]
     if companion:
         next_agent = max(companion, key=lambda row: row["rating"])
-        lines.append(f"{next_agent['agent']} stays with the default ({next_agent['rating']:.2f} over {next_agent['maps']} maps).")
+        lines.append(
+            _say(
+                lang,
+                f"{next_agent['agent']} stays with the default ({next_agent['rating']:.2f} over {next_agent['maps']} maps).",
+                f"{next_agent['agent']} fica junto do padrão ({next_agent['rating']:.2f} em {next_agent['maps']} mapas).",
+            )
+        )
     if volume["agent"] != home["agent"] and volume["rating"] + 0.05 < home["rating"]:
         lines.append(
-            f"{volume['agent']} is the most played agent at a lower rating "
-            f"({volume['rating']:.2f} over {volume['maps']} maps). Move those rounds onto {home['agent']}."
+            _say(
+                lang,
+                f"{volume['agent']} is the most played agent at a lower rating "
+                f"({volume['rating']:.2f} over {volume['maps']} maps). Move those rounds onto {home['agent']}.",
+                f"{volume['agent']} é o agente mais jogado com rating mais baixo "
+                f"({volume['rating']:.2f} em {volume['maps']} mapas). Passe essas rodadas para {home['agent']}.",
+            )
         )
     drops = []
     cautions = []
@@ -606,20 +661,45 @@ def _agent_plan(group: pd.DataFrame) -> dict:
             continue
         short = home["rating"] - row["rating"]
         if short >= 0.15:
-            drops.append(f"{row['agent']} ({row['rating']:.2f} over {row['maps']} maps)")
+            drops.append(
+                _say(
+                    lang,
+                    f"{row['agent']} ({row['rating']:.2f} over {row['maps']} maps)",
+                    f"{row['agent']} ({row['rating']:.2f} em {row['maps']} mapas)",
+                )
+            )
         elif short >= 0.08 and row["fk_diff"] <= -4:
-            drops.append(f"{row['agent']} ({row['rating']:.2f}, first-duel differential {row['fk_diff']:+d})")
+            drops.append(
+                _say(
+                    lang,
+                    f"{row['agent']} ({row['rating']:.2f}, first-duel differential {row['fk_diff']:+d})",
+                    f"{row['agent']} ({row['rating']:.2f}, saldo de primeiro duelo {row['fk_diff']:+d})",
+                )
+            )
         elif row["fk_diff"] <= -3 and short > 0:
-            cautions.append(f"{row['agent']} ({row['rating']:.2f}, first-duel differential {row['fk_diff']:+d})")
+            cautions.append(
+                _say(
+                    lang,
+                    f"{row['agent']} ({row['rating']:.2f}, first-duel differential {row['fk_diff']:+d})",
+                    f"{row['agent']} ({row['rating']:.2f}, saldo de primeiro duelo {row['fk_diff']:+d})",
+                )
+            )
     if drops:
-        listed = drops[0] if len(drops) == 1 else ", ".join(drops[:-1]) + " and " + drops[-1]
-        lines.append(f"Drop {listed} until the rating is near {home['agent']}.")
+        conjunction = " e " if lang == "pt" else " and "
+        listed = drops[0] if len(drops) == 1 else ", ".join(drops[:-1]) + conjunction + drops[-1]
+        lines.append(
+            _say(
+                lang,
+                f"Drop {listed} until the rating is near {home['agent']}.",
+                f"Tire {listed} até o rating chegar perto de {home['agent']}.",
+            )
+        )
     if cautions:
-        lines.append("Not the default: " + ", ".join(cautions) + ".")
+        lines.append(_say(lang, "Not the default: ", "Não é o padrão: ") + ", ".join(cautions) + ".")
     return {"role": role, "lines": lines, "home": home["agent"]}
 
 
-def player_assignments(players: pd.DataFrame, performance: pd.DataFrame) -> dict:
+def player_assignments(players: pd.DataFrame, performance: pd.DataFrame, lang: str = "en") -> dict:
     """Roster plan: default agent, what to move off, the winning side, and the partner."""
     summary = player_summary(players)
     if summary.empty:
@@ -638,7 +718,7 @@ def player_assignments(players: pd.DataFrame, performance: pd.DataFrame) -> dict
     for _, row in regulars.iterrows():
         name = row["player"]
         group = both[both["player"] == name]
-        plan = _agent_plan(group)
+        plan = _agent_plan(group, lang)
         role = plan["role"]
         sides = _side_stats(players, name)
         attack = sides.get("attack", {})
@@ -682,9 +762,12 @@ def player_assignments(players: pd.DataFrame, performance: pd.DataFrame) -> dict
 
     cards = []
     for card in sorted(drafts, key=lambda item: item["rating"] or 0, reverse=True):
-        side_line = (
+        side_line = _say(
+            lang,
             f"Wins the duel on {card['strong']}: first-duel differential {card['strong_fk']:+d} there, "
-            f"{card['weak_fk']:+d} on the other side."
+            f"{card['weak_fk']:+d} on the other side.",
+            f"Ganha o duelo {_on_side(lang, card['strong'])}: saldo de primeiro duelo {card['strong_fk']:+d} nesse lado, "
+            f"{card['weak_fk']:+d} no outro.",
         )
         leak = ""
         if card["attack_rating"] is not None and card["defense_rating"] is not None:
@@ -694,64 +777,126 @@ def player_assignments(players: pd.DataFrame, performance: pd.DataFrame) -> dict
             if weak_side:
                 weak_rating = card["attack_rating"] if weak_side == "attack" else card["defense_rating"]
                 other_rating = card["defense_rating"] if weak_side == "attack" else card["attack_rating"]
-                leak = f"The leak is {weak_side} rating {weak_rating:.2f} against {other_rating:.2f}."
+                leak = _say(
+                    lang,
+                    f"The leak is {weak_side} rating {weak_rating:.2f} against {other_rating:.2f}.",
+                    f"O vazamento é o rating de {_side_name(lang, weak_side)}: {weak_rating:.2f} contra {other_rating:.2f}.",
+                )
         info_name = info["player"] if info else ""
         entry_name = attack_entry["player"] if attack_entry else ""
         if card["role"] == "duelist" and card["strong"] == "defense" and card["weak_fk"] <= 0:
             pair = (
-                f"On attack, only the committed fight after {info_name}'s info. Leave the lurk."
+                _say(
+                    lang,
+                    f"On attack, only the committed fight after {info_name}'s info. Leave the lurk.",
+                    f"No ataque, só a luta combinada depois da info de {info_name}. Sem lurk.",
+                )
                 if info_name
-                else "On attack, only the committed fight. Leave the lurk."
+                else _say(
+                    lang,
+                    "On attack, only the committed fight. Leave the lurk.",
+                    "No ataque, só a luta combinada. Sem lurk.",
+                )
             )
         elif card["role"] == "duelist" and card["strong"] == "defense":
             pair = (
-                f"Defensive contact is the job. On attack, second body after {info_name}'s info, not a dry entry."
+                _say(
+                    lang,
+                    f"Defensive contact is the job. On attack, second body after {info_name}'s info, not a dry entry.",
+                    f"O contato defensivo é a função. No ataque, segundo corpo depois da info de {info_name}, sem entry seco.",
+                )
                 if info_name
-                else "Defensive contact is the job. On attack, be the second body, not the dry entry."
+                else _say(
+                    lang,
+                    "Defensive contact is the job. On attack, be the second body, not the dry entry.",
+                    "O contato defensivo é a função. No ataque, seja o segundo corpo, sem entry seco.",
+                )
             )
         elif card["role"] == "duelist":
             pair = (
-                f"This is the attack entry. {info_name}'s info goes to this contact."
+                _say(
+                    lang,
+                    f"This is the attack entry. {info_name}'s info goes to this contact.",
+                    f"Esta é a entry de ataque. A info de {info_name} vai para este contato.",
+                )
                 if info_name
-                else "This is the attack entry. The info player should be on the same contact."
+                else _say(
+                    lang,
+                    "This is the attack entry. The info player should be on the same contact.",
+                    "Esta é a entry de ataque. Quem dá info fica no mesmo contato.",
+                )
             )
         elif card["role"] == "initiator":
             pair = (
-                f"Info into {entry_name}'s contact, then take the plant."
+                _say(
+                    lang,
+                    f"Info into {entry_name}'s contact, then take the plant.",
+                    f"Info no contato de {entry_name}, depois planta.",
+                )
                 if entry_name
-                else "Info into the contact, then take the plant."
+                else _say(lang, "Info into the contact, then take the plant.", "Info no contato, depois planta.")
             )
             if card["plants"] and (planter is None or planter["player"] == card["player"]):
-                pair += f" Plant count is {card['plants']}, the roster high."
+                pair += _say(
+                    lang,
+                    f" Plant count is {card['plants']}, the roster high.",
+                    f" Foram {card['plants']} plants, o maior número do elenco.",
+                )
         elif card["role"] == "controller":
             pair = (
-                f"Smoke and play the post-plant with {planter['player']}. The first duel stays with the duelists."
+                _say(
+                    lang,
+                    f"Smoke and play the post-plant with {planter['player']}. The first duel stays with the duelists.",
+                    f"Smoka e joga o pós-plant com {planter['player']}. O primeiro duelo fica com as duelistas.",
+                )
                 if planter and planter["player"] != card["player"]
-                else "Smoke and play the post-plant. The first duel stays with the duelists."
+                else _say(
+                    lang,
+                    "Smoke and play the post-plant. The first duel stays with the duelists.",
+                    "Smoka e joga o pós-plant. O primeiro duelo fica com as duelistas.",
+                )
             )
         else:
             names = [person for person in (entry_name, info_name) if person]
             pair = (
-                f"Hold the site {' and '.join(names)} are not hitting. The 1v1 is the job, not the execute contact."
+                _say(
+                    lang,
+                    f"Hold the site {' and '.join(names)} are not hitting. The 1v1 is the job, not the execute contact.",
+                    f"Segura o bomb que {' e '.join(names)} não estão atacando. O 1v1 é a função, não o contato do execute.",
+                )
                 if names
-                else "Hold the site the entry is not hitting."
+                else _say(
+                    lang,
+                    "Hold the site the entry is not hitting.",
+                    "Segura o bomb que a entry não está atacando.",
+                )
             )
         detail = " ".join(part for part in (*card["agent_lines"], side_line, leak, pair) if part)
         cards.append({"player": card["player"], "role": card["role"], "detail": detail})
     shape_bits = []
     if info and attack_entry:
-        shape_bits.append(f"{info['player']} info into {attack_entry['player']}")
+        shape_bits.append(
+            _say(
+                lang,
+                f"{info['player']} info into {attack_entry['player']}",
+                f"info de {info['player']} para {attack_entry['player']}",
+            )
+        )
     if planter:
-        shape_bits.append(f"{planter['player']} plants")
+        shape_bits.append(_say(lang, f"{planter['player']} plants", f"{planter['player']} planta"))
     controllers = [card["player"] for card in drafts if card["role"] == "controller"]
     sentinels = [card["player"] for card in drafts if card["role"] == "sentinel"]
     if controllers:
-        shape_bits.append(f"{controllers[0]} plays the round out")
+        shape_bits.append(
+            _say(lang, f"{controllers[0]} plays the round out", f"{controllers[0]} joga o pós-plant")
+        )
     if sentinels:
-        shape_bits.append(f"{sentinels[0]} holds the other site")
+        shape_bits.append(
+            _say(lang, f"{sentinels[0]} holds the other site", f"{sentinels[0]} segura o outro bomb")
+        )
     shape = ""
     if shape_bits:
-        shape = "The contact is " + ", ".join(shape_bits) + "."
+        shape = _say(lang, "The contact is ", "O contato é ") + ", ".join(shape_bits) + "."
     return {"cards": cards, "shape": shape}
 
 
