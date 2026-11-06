@@ -1,6 +1,6 @@
 # Análise de Dados Valorant Game Changers
 
-Season review for **MIBR GC** in **2026**, built from the public match pages on [VLR](https://www.vlr.gg/team/matches/8050/mibr-gc/). The same pipeline can point at another team later.
+Season review for **MIBR GC** and **Team Liquid Brazil** in **2026**, built from the public match pages on [VLR](https://www.vlr.gg/team/matches/8050/mibr-gc/) and [VLR](https://www.vlr.gg/team/7055/team-liquid-brazil).
 
 ## What it answers
 
@@ -20,7 +20,22 @@ On the `match-day` branch, the brief a coach can read is separate from this lab:
 streamlit run matchday/app.py
 ```
 
-That app has four sections: the one-page report, the Team Liquid Brazil series, the veto card, and three rehearsal cues. The sidebar switches the same brief between English and Portuguese. It reads the same `data/processed` tables as the lab. `main` keeps the full dashboard.
+The iOS app opens on a roster choice: MIBR GC or Team Liquid Brazil. Each brief has the report, the series against the other roster, the veto card, and three rehearsal cues. English and Portuguese, and the Brazil circuit versus the international sheet, stay inside the roster you picked. The Brazil veto is Kickoff, Stage 1, Stage 2, and Finals. Championship and AMER Last Chance are the check, not part of that average. VCL stays out. The year stays 2026 because the rosters changed.
+
+```bash
+python -m mibrgc fetch --team team-liquid-brazil
+python -m matchday.export_ios
+```
+
+MIBR GC tables stay in `data/processed`. Team Liquid Brazil tables stay in `data/team-liquid-brazil/processed`. `main` keeps the full MIBR GC dashboard.
+
+The iOS app in `ios/MIBRGC.xcodeproj` draws those same reads as bars, score cards, and a veto list. Refresh the bundled numbers after a new fetch:
+
+```bash
+python -m matchday.export_ios
+```
+
+Open the project in Xcode and run it on a simulator. The EN / PT control is at the top of the screen.
 
 ## Run
 
@@ -48,7 +63,7 @@ python -m mibrgc fetch --refresh
 
 | Path | Role |
 | --- | --- |
-| `mibrgc/config.py` | Team id, names, tags, and season. This is the switch for a second team. |
+| `mibrgc/config.py` | Season, and the roster list (id, names, tags). |
 | `mibrgc/client.py` | Downloads VLR HTML and caches it in `data/raw/`. |
 | `mibrgc/parse_list.py` | Reads the team match list into series. |
 | `mibrgc/parse_match.py` | Reads overview, performance, and economy for each series. |

@@ -4,7 +4,7 @@ import re
 
 from bs4 import BeautifulSoup, Tag
 
-from mibrgc.config import TEAM_NAMES, TEAM_TAGS
+from mibrgc import config
 
 WIN_METHODS = {
     "elim": "elimination",
@@ -31,7 +31,7 @@ def _num(value: str | None) -> float | int | None:
 
 
 def _is_us(name: str = "", tag: str = "") -> bool:
-    return name.casefold() in TEAM_NAMES or tag.casefold() in TEAM_TAGS
+    return name.casefold() in config.TEAM_NAMES or tag.casefold() in config.TEAM_TAGS
 
 
 def _side_map(cell: Tag, percent: bool = False) -> dict[str, float | int | None]:

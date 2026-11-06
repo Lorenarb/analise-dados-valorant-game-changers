@@ -4,9 +4,224 @@ from __future__ import annotations
 
 import pandas as pd
 
-from mibrgc.config import TEAM_LABEL, YEAR
+from mibrgc import config
+from mibrgc.config import YEAR
 from mibrgc.insights import map_decisions, player_assignments, round_plan
 from mibrgc.metrics import map_pool, our_map_rows, player_summary, side_rates
+
+
+BRAZIL = "brazil"
+INTERNATIONAL = "international"
+
+SCOPES = (
+    {
+        "id": BRAZIL,
+        "name": {"en": "Brazil", "pt": "Brasil"},
+        "note": {
+            "en": "Brazil circuit only: Kickoff, Stage 1, Stage 2, and Finals. Championship, AMER Last Chance, and VCL are not in this veto.",
+            "pt": "Só o circuito do Brasil: Kickoff, Stage 1, Stage 2 e Finals. Championship, AMER Last Chance e VCL ficam fora deste veto.",
+        },
+    },
+    {
+        "id": INTERNATIONAL,
+        "name": {"en": "International", "pt": "Internacional"},
+        "note": {
+            "en": "Championship and AMER Last Chance only. The sample is small. Use it as a check beside the Brazil veto.",
+            "pt": "Só Championship e AMER Last Chance. A amostra é pequena. Use como checagem ao lado do veto do Brasil.",
+        },
+    },
+)
+
+
+def competition_scope(event: str) -> str:
+    """Brazil stages, or Championship plus AMER. VCL and anything else stay out."""
+    name = str(event)
+    if "VCL" in name:
+        return ""
+    if "Championship" in name or "AMER" in name or "Last Chance" in name:
+        return INTERNATIONAL
+    if "Brazil" in name:
+        return BRAZIL
+    return ""
+
+
+def filter_scope(frames: dict[str, pd.DataFrame], scope: str) -> dict[str, pd.DataFrame]:
+    matches = frames["matches"]
+    chosen = matches["event"].map(competition_scope).eq(scope)
+    ids = set(matches.loc[chosen, "match_id"].astype(str))
+    scoped = {}
+    for key, frame in frames.items():
+        if frame.empty or "match_id" not in getattr(frame, "columns", []):
+            scoped[key] = frame
+            continue
+        scoped[key] = frame[frame["match_id"].astype(str).isin(ids)].copy()
+    return scoped
+
+
+_ECONOMY_ORDER = ("pistol", "bonus", "full_full", "full_half", "full_eco", "half_half", "eco_full")
+
+
+def economy_rows(opening: pd.DataFrame, buys: pd.DataFrame) -> list[dict]:
+    """Buy win rates with enough rounds to read. Empty matchups are left out."""
+    found: dict[str, dict] = {}
+    if not opening.empty and "is_us" in opening.columns:
+        ours = opening[opening["is_us"] == True]  # noqa: E712
+        for key, won_col, played_col in (
+            ("pistol", "pistol_won", "pistol_played"),
+            ("bonus", "bonus_won", "bonus_played"),
+        ):
+            played = int(ours[played_col].sum())
+            won = int(ours[won_col].sum())
+            if played >= 8:
+                found[key] = {"key": key, "won": won, "played": played, "rate": round(won / played, 4)}
+    if not buys.empty and "is_us" in buys.columns:
+        ours = buys[buys["is_us"] == True]  # noqa: E712
+        pairs = {
+            "full_full": ("full", "full"),
+            "full_half": ("full", "half"),
+            "full_eco": ("full", "eco"),
+            "half_half": ("half", "half"),
+            "eco_full": ("eco", "full"),
+        }
+        for key, (our_buy, opp_buy) in pairs.items():
+            group = ours[(ours["our_buy"] == our_buy) & (ours["opp_buy"] == opp_buy)]
+            played = int(group["played"].sum()) if not group.empty else 0
+            won = int(group["won"].sum()) if not group.empty else 0
+            if played >= 8:
+                found[key] = {"key": key, "won": won, "played": played, "rate": round(won / played, 4)}
+    return [found[key] for key in _ECONOMY_ORDER if key in found]
+
+
+def economy_strategies(opening: pd.DataFrame, buys: pd.DataFrame, lang: str = "en") -> list[dict]:
+    """The buy states lost most often, each with one round plan."""
+    rows = economy_rows(opening, buys)
+    ranked = sorted((row for row in rows if row["played"] >= 20), key=lambda row: row["rate"])[:3]
+    plans = []
+    for row in ranked:
+        lost = row["played"] - row["won"]
+        plans.append(
+            {
+                "key": row["key"],
+                "won": row["won"],
+                "played": row["played"],
+                "rate": row["rate"],
+                "title": _economy_title(row["key"], lang),
+                "line": _economy_line(row["key"], lang),
+                "why": _economy_why(row["key"], lost, row["played"], opening, buys, lang),
+            }
+        )
+    return plans
+
+
+def _economy_title(key: str, lang: str) -> str:
+    titles = {
+        "en": {
+            "eco_full": "Eco vs their rifles",
+            "half_half": "Half vs their half",
+            "bonus": "Bonus round",
+            "pistol": "Pistol",
+            "full_eco": "Full vs their eco",
+            "full_half": "Full vs their half",
+            "full_full": "Full vs their full",
+        },
+        "pt": {
+            "eco_full": "Eco contra os rifles delas",
+            "half_half": "Half contra o half delas",
+            "bonus": "Rodada de bônus",
+            "pistol": "Pistola",
+            "full_eco": "Full contra o eco delas",
+            "full_half": "Full contra o half delas",
+            "full_full": "Full contra o full delas",
+        },
+    }
+    return titles.get(lang, titles["en"]).get(key, key)
+
+
+def _economy_line(key: str, lang: str) -> str:
+    if lang == "pt":
+        lines = {
+            "eco_full": "Jogue o save. Um exit ou o plant, e saia do duelo de rifle.",
+            "half_half": "Não entre em cinco duelos separados num half buy. Salve para um full, ou jogue só o contato combinado.",
+            "bonus": "Segure as armas que sobraram e jogue devagar. Sem caçada.",
+            "full_eco": "Feche o anti-eco do jeito treinado. Sem pressa depois da pistola.",
+            "full_full": "Trate o full contra full como a linha de base. Não misture com o eco.",
+        }
+        return lines.get(key, "Revise essas rodadas antes de mudar o veto.")
+    lines = {
+        "eco_full": "Play the save. Take one exit or the plant, then leave the rifle duel.",
+        "half_half": "Do not take five separate duels on a half buy. Save into a full, or play only the named contact.",
+        "bonus": "Keep the leftover guns in a slow round. Do not hunt.",
+        "full_eco": "Close the anti-eco the way you practiced it. No rush after the pistol.",
+        "full_full": "Treat full vs full as the baseline. Keep it apart from the eco rounds.",
+    }
+    return lines.get(key, "Review these rounds before changing a veto.")
+
+
+def _economy_why(key: str, lost: int, played: int, opening: pd.DataFrame, buys: pd.DataFrame, lang: str) -> str:
+    share = lost / played if played else 0
+    record = f"{share:.0%} ({lost}/{played})"
+    extra = ""
+    if key == "half_half" and not buys.empty and "is_us" in buys.columns:
+        group = buys[(buys["is_us"] == True) & (buys["our_buy"] == "half") & (buys["opp_buy"] == "half")]  # noqa: E712
+        if not group.empty:
+            by_opp = group.groupby("opponent")[["won", "played"]].sum().sort_values("played", ascending=False)
+            top = by_opp.iloc[0]
+            if int(top["played"]) >= 0.25 * played:
+                top_rate = int(top["won"]) / int(top["played"]) if int(top["played"]) else 0
+                opponent = by_opp.index[0]
+                extra = (
+                    f" {int(top['played'])} dessas rodadas são contra {opponent}, ganhas a {top_rate:.0%}."
+                    if lang == "pt"
+                    else f" {int(top['played'])} of those rounds are against {opponent}, won at {top_rate:.0%}."
+                )
+    if key == "bonus" and not opening.empty and "is_us" in opening.columns:
+        ours = opening[opening["is_us"] == True]  # noqa: E712
+        converted = int(ours["conversion_won"].sum())
+        conversion_played = int(ours["conversion_played"].sum())
+        if conversion_played:
+            conversion = converted / conversion_played
+            extra = (
+                f" A conversão da pistola é {conversion:.0%} ({converted}/{conversion_played}), então o vazamento é o bônus."
+                if lang == "pt"
+                else f" Pistol conversion is {conversion:.0%} ({converted}/{conversion_played}), so the leak is the bonus."
+            )
+    if lang == "pt":
+        if key == "eco_full":
+            return f"Perderam {record}. Um save deve perder. Essa rodada existe para o próximo full buy estar vivo."
+        if key == "half_half":
+            return f"Perderam {record}. É a compra equilibrada que desmonta contra o campo.{extra}"
+        return f"Perderam {record}.{extra}"
+    if key == "eco_full":
+        return f"Lost {record}. A save is supposed to lose. This round exists so the next full buy is alive."
+    if key == "half_half":
+        return f"Lost {record}. This is the even buy that falls apart against the field.{extra}"
+    return f"Lost {record}.{extra}"
+
+
+def economy_note(rows: list[dict], lang: str = "en") -> str:
+    by_key = {row["key"]: row for row in rows}
+    half = by_key.get("half_half")
+    anti = by_key.get("full_eco")
+    save = by_key.get("eco_full")
+    if lang == "pt":
+        if half and half["rate"] < 0.45:
+            text = f"A compra para revisar é half contra half: {half['rate']:.0%} ({half['won']}/{half['played']})."
+        elif anti and anti["rate"] < 0.8:
+            text = f"A compra para revisar é full contra eco: {anti['rate']:.0%} ({anti['won']}/{anti['played']})."
+        else:
+            text = "As compras de full estão na faixa jogável."
+        if save:
+            text += " Eco contra full baixo é a rodada de save, não um problema separado."
+        return text
+    if half and half["rate"] < 0.45:
+        text = f"The buy to review is half vs half: {half['rate']:.0%} ({half['won']}/{half['played']})."
+    elif anti and anti["rate"] < 0.8:
+        text = f"The buy to review is full vs eco: {anti['rate']:.0%} ({anti['won']}/{anti['played']})."
+    else:
+        text = "Full buys are in a playable range."
+    if save:
+        text += " A low eco vs full rate is the save round, not a separate problem."
+    return text
 
 
 def season_headline(matches: pd.DataFrame, maps: pd.DataFrame) -> dict:
@@ -18,7 +233,7 @@ def season_headline(matches: pd.DataFrame, maps: pd.DataFrame) -> dict:
     round_diff = int(map_rows["our_score"].sum() - map_rows["opp_score"].sum()) if not map_rows.empty else 0
     sides = side_rates(maps)
     return {
-        "team": TEAM_LABEL,
+        "team": config.TEAM_LABEL,
         "year": YEAR,
         "series": f"{wins}-{losses}",
         "maps": f"{map_wins}-{map_count - map_wins}" if map_count else "0-0",
@@ -218,9 +433,9 @@ def opponent_read(pack: dict, lang: str = "en") -> str:
     sweeps = series[(series["our_score"] == 0) & (series["opp_score"] >= 2)]
     long_wins = series[(series["result"] == "win") & (series["our_score"] + series["opp_score"] >= 3)]
     text = (
-        f"{TEAM_LABEL} está {wins}-{losses} contra {label} em {YEAR}."
+        f"{config.TEAM_LABEL} está {wins}-{losses} contra {label} em {YEAR}."
         if lang == "pt"
-        else f"{TEAM_LABEL} is {wins}-{losses} against {label} in {YEAR}."
+        else f"{config.TEAM_LABEL} is {wins}-{losses} against {label} in {YEAR}."
     )
     if not sweeps.empty:
         listed = ", ".join(

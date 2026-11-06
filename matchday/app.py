@@ -12,144 +12,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from matchday.brief import (  # noqa: E402
+    BRAZIL,
+    SCOPES,
+    filter_scope,
     opponent_pack,
     opponent_read,
     preparation_cues,
     season_headline,
     veto_steps,
 )
-from mibrgc.config import TEAM_LABEL, YEAR  # noqa: E402
+from matchday.copy import COPY, ROLES  # noqa: E402
+from mibrgc.config import TEAMS, YEAR, team_dirs, use_team  # noqa: E402
 from mibrgc.insights import map_decisions, player_assignments  # noqa: E402
 from mibrgc.tables import load_tables  # noqa: E402
 
 PROCESSED = ROOT / "data" / "processed"
-st.set_page_config(page_title=f"{TEAM_LABEL} match day", layout="centered")
-
-COPY = {
-    "en": {
-        "title": f"{TEAM_LABEL} · match day",
-        "caption": f"{YEAR} public VLR numbers, written as a brief. These are hypotheses for a VOD, not a verdict.",
-        "missing": "No tables yet. From the project folder run `python -m mibrgc fetch`, then reload.",
-        "sidebar": "Match day",
-        "language": "Language",
-        "section": "Section",
-        "report": "Report",
-        "liquid": "Liquid",
-        "veto": "Veto",
-        "cues": "Cues",
-        "lab": "The full lab is `streamlit run dashboard/app.py` on main.",
-        "series": "Series",
-        "maps": "Maps",
-        "round_diff": "Round diff",
-        "attack": "Attack",
-        "defense": "Defense",
-        "call": "The call",
-        "contact": "Contact",
-        "say": "Say this",
-        "roster": "Roster, if you need the why",
-        "opponent": "Team Liquid Brazil",
-        "series_heading": "Series",
-        "maps_heading": "Maps against them",
-        "roster_heading": "Roster in those series",
-        "veto_heading": "Veto card",
-        "veto_caption": "Read top to bottom. Ban first, then the pick, then the maps that are only good on one side.",
-        "veto_empty": "Not enough maps for a veto.",
-        "cues_heading": "Preparation",
-        "cues_caption": "Rehearse the round. The numbers do not describe how anyone feels.",
-        "cues_empty": "Not enough rounds to write a cue.",
-        "no_rows": "No rows.",
-        "win": "win",
-        "loss": "loss",
-        "date": "date",
-        "event": "event",
-        "stage": "stage",
-        "our_score": "our_score",
-        "opp_score": "opp_score",
-        "result": "result",
-        "map_name": "map",
-        "map_count": "maps",
-        "wins": "wins",
-        "win_rate": "win rate",
-        "attack_win_rate": "attack",
-        "defense_win_rate": "defense",
-        "player": "player",
-        "rounds": "rounds",
-        "rating": "rating",
-        "kills": "kills",
-        "deaths": "deaths",
-        "assists": "assists",
-    },
-    "pt": {
-        "title": f"{TEAM_LABEL} · dia de jogo",
-        "caption": f"Números públicos da VLR em {YEAR}, escritos como um brief. São hipóteses para um VOD, não um veredito.",
-        "missing": "Ainda não há tabelas. Na pasta do projeto, rode `python -m mibrgc fetch` e recarregue.",
-        "sidebar": "Dia de jogo",
-        "language": "Idioma",
-        "section": "Seção",
-        "report": "Relatório",
-        "liquid": "Liquid",
-        "veto": "Veto",
-        "cues": "Falas",
-        "lab": "O laboratório completo é `streamlit run dashboard/app.py` na main.",
-        "series": "Séries",
-        "maps": "Mapas",
-        "round_diff": "Saldo de rounds",
-        "attack": "Ataque",
-        "defense": "Defesa",
-        "call": "A decisão",
-        "contact": "Contato",
-        "say": "Fale isto",
-        "roster": "Elenco, se precisar do porquê",
-        "opponent": "Team Liquid Brazil",
-        "series_heading": "Séries",
-        "maps_heading": "Mapas contra elas",
-        "roster_heading": "Elenco nessas séries",
-        "veto_heading": "Cartão de veto",
-        "veto_caption": "Leia de cima para baixo. Ban primeiro, depois a escolha, depois os mapas que só funcionam de um lado.",
-        "veto_empty": "Mapas insuficientes para um veto.",
-        "cues_heading": "Preparação",
-        "cues_caption": "Ensaie a rodada. Os números não descrevem como ninguém se sente.",
-        "cues_empty": "Rodadas insuficientes para escrever uma fala.",
-        "no_rows": "Sem linhas.",
-        "win": "vitória",
-        "loss": "derrota",
-        "date": "data",
-        "event": "campeonato",
-        "stage": "fase",
-        "our_score": "nós",
-        "opp_score": "elas",
-        "result": "resultado",
-        "map_name": "mapa",
-        "map_count": "mapas",
-        "wins": "vitórias",
-        "win_rate": "taxa",
-        "attack_win_rate": "ataque",
-        "defense_win_rate": "defesa",
-        "player": "jogadora",
-        "rounds": "rounds",
-        "rating": "rating",
-        "kills": "abates",
-        "deaths": "mortes",
-        "assists": "assistências",
-    },
-}
-
-ROLES = {
-    "en": {
-        "controller": "controller",
-        "duelist": "duelist",
-        "initiator": "initiator",
-        "sentinel": "sentinel",
-        "flex": "flex",
-    },
-    "pt": {
-        "controller": "controladora",
-        "duelist": "duelista",
-        "initiator": "iniciadora",
-        "sentinel": "sentinela",
-        "flex": "flex",
-    },
-}
+st.set_page_config(page_title=f"Game Changers {YEAR}", layout="centered")
 
 PAGES = ["report", "liquid", "veto", "cues"]
 
@@ -195,7 +73,18 @@ def main() -> None:
             horizontal=True,
             label_visibility="collapsed",
         )
-    text = COPY[lang]
+    with st.sidebar:
+        team = st.radio(
+            "Team",
+            [item["slug"] for item in TEAMS],
+            format_func=lambda slug: next(item["label"] for item in TEAMS if item["slug"] == slug),
+            horizontal=True,
+        )
+    active = use_team(team)
+    text = dict(COPY[lang])
+    text["title"] = f"{active['label']} · {'dia de jogo' if lang == 'pt' else 'match day'}"
+    text["liquid"] = active["rival_tab"][lang]
+    text["opponent"] = active["rival_label"]
     st.title(text["title"])
     st.caption(text["caption"])
 
@@ -203,7 +92,21 @@ def main() -> None:
         st.warning(text["missing"])
         st.stop()
 
-    frames = load_tables(PROCESSED)
+    with st.sidebar:
+        scope = st.radio(
+            "Circuit",
+            [item["id"] for item in SCOPES],
+            index=0,
+            format_func=lambda code: next(item["name"][lang] for item in SCOPES if item["id"] == code),
+            horizontal=True,
+        )
+    _, processed = team_dirs(active["slug"], ROOT)
+    if not (processed / "matches.csv").exists():
+        st.warning(text["missing"])
+        st.stop()
+    frames = filter_scope(load_tables(processed), scope or BRAZIL)
+    note = next(item["note"][lang] for item in SCOPES if item["id"] == scope)
+    st.caption(note)
     decisions = map_decisions(frames["maps"])
     roster = player_assignments(frames["players"], frames["performance"], lang=lang)
     cues = preparation_cues(frames, roster, lang=lang)
@@ -217,7 +120,7 @@ def main() -> None:
     if page == "report":
         render_report(frames, steps, cues, roster, text, lang)
     elif page == "liquid":
-        render_liquid(frames, text, lang)
+        render_liquid(frames, text, lang, active["rival_query"])
     elif page == "veto":
         render_veto(steps, text)
     else:
@@ -251,9 +154,9 @@ def render_report(frames, steps, cues, roster, text, lang) -> None:
             st.markdown(f"**{card['player']} · {role}.** {card['detail']}")
 
 
-def render_liquid(frames, text, lang) -> None:
+def render_liquid(frames, text, lang, rival_query: str) -> None:
     st.subheader(text["opponent"])
-    pack = opponent_pack(frames, "Liquid")
+    pack = opponent_pack(frames, rival_query)
     st.markdown(opponent_read(pack, lang=lang))
     if pack["series"].empty:
         return

@@ -5,7 +5,8 @@ from datetime import datetime
 
 from bs4 import BeautifulSoup
 
-from mibrgc.config import TEAM_LABEL, VLR_ORIGIN, YEAR, TEAM_NAMES, TEAM_TAGS
+from mibrgc import config
+from mibrgc.config import VLR_ORIGIN, YEAR
 
 
 def _clean(text: str | None) -> str:
@@ -13,7 +14,7 @@ def _clean(text: str | None) -> str:
 
 
 def _is_us(name: str = "", tag: str = "") -> bool:
-    return name.casefold() in TEAM_NAMES or tag.casefold() in TEAM_TAGS
+    return name.casefold() in config.TEAM_NAMES or tag.casefold() in config.TEAM_TAGS
 
 
 def parse_match_list(html: str) -> list[dict]:
@@ -90,7 +91,7 @@ def parse_match_list(html: str) -> list[dict]:
                 "time": time_text,
                 "event": event,
                 "stage": stage,
-                "team": TEAM_LABEL,
+                "team": config.TEAM_LABEL,
                 "opponent": opponent,
                 "opponent_tag": opponent_tag,
                 "our_score": our_score,

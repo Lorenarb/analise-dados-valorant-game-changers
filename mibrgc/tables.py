@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from mibrgc.config import TEAM_LABEL, YEAR
+from mibrgc import config
+from mibrgc.config import YEAR
 from mibrgc.parse_match import parse_match
 
 
@@ -112,11 +113,11 @@ def write_tables(frames: dict[str, pd.DataFrame], processed_dir: Path) -> None:
     summary.write_text(
         "\n".join(
             [
-                f"team: {TEAM_LABEL}",
+                f"team: {config.TEAM_LABEL}",
                 f"year: {YEAR}",
                 f"series: {len(matches)}",
                 f"maps: {len(maps)}",
-                "source: https://www.vlr.gg/team/matches/8050/mibr-gc/",
+                f"source: {config.MATCH_LIST_URL}",
                 "",
             ]
         ),
